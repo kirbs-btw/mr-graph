@@ -26,3 +26,8 @@ python main.py --backend networkx --networkx-output songs.graphml
 ```
 
 Set `NEO4J_URI`, `NEO4J_USER`, and `NEO4J_PASSWORD` environment variables to avoid passing credentials via CLI flags.
+
+## Retrieval helpers
+
+Use `mr_graph.retrieval.get_related_tracks(track_id, backend, k)` to retrieve the top k connected tracks sorted by the co-occurrence weight. A placeholder `get_related_tracks_for_multiple` is available for future multi-track queries.
+

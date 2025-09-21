@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any, List, Optional, Tuple
 
 
 class GraphBackend(ABC):
@@ -26,6 +26,11 @@ class GraphBackend(ABC):
     @abstractmethod
     def upsert_connection(self, source_id: str, target_id: str, weight: int) -> None:
         """Create or update an edge between two track nodes."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_related_tracks(self, track_id: str, limit: int | None = None) -> List[Tuple[str, int]]:
+        """Return connected track ids with their weights in descending order."""
         raise NotImplementedError
 
     def close(self) -> None:
@@ -106,12 +111,40 @@ class Neo4jGraphBackend(GraphBackend):
 
         self._execute_write(_upsert)
 
+    def get_related_tracks(self, track_id: str, limit: int | None = None) -> List[Tuple[str, int]]:
+        def _query(tx):
+            query = (
+                "MATCH (:Track {track_id: $track_id})-"
+                "[r:CO_OCCURS_WITH]-"
+                "(related:Track) "
+                "RETURN related.track_id AS track_id, r.weight AS weight "
+                "ORDER BY weight DESC, track_id ASC"
+            )
+            params: dict[str, object] = {"track_id": track_id}
+            if limit is not None:
+                query += " LIMIT $limit"
+                params["limit"] = limit
+            result = tx.run(query, **params)
+            return [
+                (record["track_id"], int(record["weight"] or 0))
+                for record in result
+            ]
+
+        return self._execute_read(_query)
+
     def _execute_write(self, callback) -> None:
         with self._driver.session(database=self._database) as session:
             try:
                 session.execute_write(callback)
             except AttributeError:
                 session.write_transaction(callback)
+
+    def _execute_read(self, callback):
+        with self._driver.session(database=self._database) as session:
+            try:
+                return session.execute_read(callback)
+            except AttributeError:
+                return session.read_transaction(callback)
 
 
 class NetworkXGraphBackend(GraphBackend):
@@ -141,6 +174,21 @@ class NetworkXGraphBackend(GraphBackend):
             self.graph[source_id][target_id]["weight"] = weight
         else:
             self.graph.add_edge(source_id, target_id, weight=weight)
+
+    def get_related_tracks(self, track_id: str, limit: int | None = None) -> List[Tuple[str, int]]:
+        if track_id not in self.graph:
+            return []
+
+        neighbors = [
+            (neighbor, int(data.get("weight", 0)))
+            for neighbor, data in self.graph[track_id].items()
+        ]
+        neighbors.sort(key=lambda item: (-item[1], item[0]))
+
+        if limit is not None:
+            neighbors = neighbors[:limit]
+
+        return neighbors
 
     def close(self) -> None:
         return None
