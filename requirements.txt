@@ -1,0 +1,3 @@
+# Core dependencies for mr-graph
+neo4j>=5.0.0
+networkx>=3.0
